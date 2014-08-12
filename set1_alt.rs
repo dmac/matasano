@@ -1,9 +1,10 @@
 // Alternate implementation of Set 1 using libraries for serialization.
-
 extern crate serialize;
 
-use serialize::hex::{FromHex, ToHex};
+use serialize::hex::{FromHex};
 use serialize::base64::{Config, Standard, ToBase64};
+
+use std::io::{BufferedReader, File};
 
 fn hex_to_base64(s: &str) -> String {
     let config = Config{
@@ -25,20 +26,74 @@ fn test_hex_to_base64() {
 696b65206120706f69736f6e6f7573206d757368726f6f6d"));
 }
 
-fn fixed_xor(s1: &str, s2: &str) -> String {
-    assert!(s1.len() == s2.len());
-    let v1 = s1.from_hex().unwrap();
-    let v2 = s2.from_hex().unwrap();
+fn fixed_xor(b: &[u8], key: &[u8]) -> Vec<u8> {
+    assert!(b.len() == key.len());
     let mut result = Vec::new();
-    for i in range(0, v1.len()) {
-        result.push(v1[i] ^ v2[i]);
+    for i in range(0, b.len()) {
+        result.push(b[i] ^ key[i]);
     }
-    result.as_slice().to_hex()
+    result
 }
 
 #[test]
 fn test_fixed_xor() {
-    assert_eq!("746865206b696420646f6e277420706c6179".to_string(),
-               fixed_xor("1c0111001f010100061a024b53535009181c",
-                         "686974207468652062756c6c277320657965"));
+    assert_eq!("746865206b696420646f6e277420706c6179".from_hex().unwrap(),
+               fixed_xor("1c0111001f010100061a024b53535009181c".from_hex().unwrap().as_slice(),
+                         "686974207468652062756c6c277320657965".from_hex().unwrap().as_slice()));
+}
+
+fn score_text_naive(s: &str) -> uint {
+    let mut score = 0;
+    for c in s.chars() {
+        if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == ' ' {
+            score += 1;
+        }
+    }
+    score
+}
+
+// Given a hex-encoded ciphertext XOR'd against a single character, plaintext, key, and score.
+fn single_byte_xor_cipher(s: &str) -> (String, char, int) {
+    let ciphertext = s.from_hex().unwrap();
+    let mut best_score = -1;
+    let mut best_key = 0u8;
+    let mut best_plaintext = String::new();
+    for key_char in range(0u8, 255) {
+        let key = Vec::from_elem(ciphertext.len(), key_char);
+        let plaintext = fixed_xor(ciphertext.as_slice(), key.as_slice());
+        match String::from_utf8(plaintext) {
+            Ok(plaintext_string) => {
+                let score = score_text_naive(plaintext_string.as_slice()) as int;
+                if score > best_score {
+                    best_score = score;
+                    best_key = key_char;
+                    best_plaintext = plaintext_string;
+                }
+            }
+            Err(_) => {}
+        }
+    }
+    (best_plaintext, best_key as char, best_score)
+}
+
+fn detect_single_character_xor(filename: &str) -> (String, char, int) {
+    let mut file = BufferedReader::new(File::open(&Path::new(filename)));
+    let lines: Vec<String> = file.lines().map(|x| x.unwrap().as_slice().trim().to_string()).collect();
+    let mut best_score = -1i;
+    let mut best_key = 'a';
+    let mut best_plaintext = String::new();
+    for line in lines.iter() {
+        let (plaintext, key, score) = single_byte_xor_cipher(line.as_slice().trim());
+        if score > best_score {
+            best_score = score;
+            best_key = key;
+            best_plaintext = plaintext.as_slice().trim().to_string();
+        }
+    }
+    (best_plaintext, best_key, best_score)
+}
+
+fn main() {
+    println!("{}", single_byte_xor_cipher("1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736"));
+    println!("{}", detect_single_character_xor("4.txt"));
 }
