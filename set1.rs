@@ -1,3 +1,7 @@
+use std::io::{BufferedReader, File};
+use std::collections::HashMap;
+use std::cmp::min;
+
 fn hex_to_base64(s: &str) -> String {
     let mut bi = 0u;
     let mut buffer: [u8, ..3] = [0, ..3];
@@ -106,4 +110,83 @@ fn test_fixed_xor() {
     assert_eq!("746865206b696420646f6e277420706c6179".to_string(),
                fixed_xor("1c0111001f010100061a024b53535009181c",
                          "686974207468652062756c6c277320657965"));
+}
+
+fn score_text_naive(s: &str) -> uint {
+    let mut score = 0;
+    for c in s.bytes() {
+        if c >= 'A' as u8 && c <= 'z' as u8 {
+            score += 1;
+        }
+    }
+    score
+}
+
+fn score_text_frequency(s: &str) -> uint {
+    let mut map = HashMap::<char, uint>::new();
+    //for i in range ('A' as u8, 'Z' as u8 + 1) {
+    //    map.insert(i as char, 0);
+    //}
+    for c in s.chars() {
+        let ch = if c >= 'a' && c <= 'z' {
+            (c as u8 - 32) as char
+        } else {
+            c
+        };
+        map.insert_or_update_with(ch, 1u, |_k, v| *v += 1);
+    }
+    let mut vec: Vec<(char, uint)> = map.iter().map(|(k, v)| (*k, *v)).collect();
+    vec.sort_by(|&(_, n1), &(_, n2)| n2.cmp(&n1));
+    let freq_string: String = vec.iter().map(|&(c, _)| c).collect();
+    let ideal_string = "ETAOINSHRDLCUMWFGYPBVKJXQZ";
+    freq_string.lev_distance(ideal_string)
+}
+
+// Given a hex-encoded ciphertext XOR'd against a single character, returns the key and the plaintext.
+// let result = single_byte_xor_cipher("1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736");
+fn single_byte_xor_cipher(s: &str) -> (String, char, int) {
+    let ciphertext = hex_decode(s);
+    let mut best_score = 100i;
+    let mut best_key = 0u8;
+    let mut best_plaintext = String::new();
+    for key in range(0u8, 255) {
+        let mut plaintext = Vec::<u8>::new();
+        for b in ciphertext.iter() {
+            plaintext.push(b ^ key);
+        }
+        match String::from_utf8(plaintext) {
+            Ok(plaintext_string) => {
+                let score = score_text_frequency(plaintext_string.as_slice()) as int;
+                if score < best_score {
+                    best_score = score;
+                    best_key = key;
+                    best_plaintext = plaintext_string;
+                }
+            }
+            Err(_) => {}
+        }
+    }
+    (best_plaintext, best_key as char, best_score)
+}
+
+fn detect_single_character_xor(filename: &str) {
+    let mut file = BufferedReader::new(File::open(&Path::new(filename)));
+    let lines: Vec<String> = file.lines().map(|x| x.unwrap().as_slice().trim().to_string()).collect();
+    let mut best_score = -1i;
+    let mut best_plaintext = String::new();
+    for line in lines.iter() {
+        let (plaintext, _, score) = single_byte_xor_cipher(line.as_slice());
+        println!("{}", plaintext);
+        if score > best_score {
+            best_score = score;
+            best_plaintext = plaintext;
+        }
+    }
+    println!("{} {}", best_score, best_plaintext);
+}
+
+fn main() {
+    //let result = single_byte_xor_cipher("1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736");
+    //println!("{}", result);
+    detect_single_character_xor("4.txt");
 }
