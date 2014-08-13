@@ -1,11 +1,13 @@
 // Alternate implementation of Set 1 using libraries for serialization.
 extern crate serialize;
+extern crate openssl;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::io::{BufferedReader, File};
 use serialize::hex::{FromHex, ToHex};
 use serialize::base64::{Config, Standard, ToBase64, FromBase64};
 
-use std::io::{BufferedReader, File};
+use openssl::crypto::symm;
 
 fn hex_to_base64(s: &str) -> String {
     let config = Config{
@@ -279,9 +281,53 @@ fn decrypt_repeating_key_xor(filename: &str) -> (Vec<u8>, String) {
     (Vec::new(), String::new())
 }
 
+fn decrypt_aes_ecb(filename: &str) -> Vec<u8> {
+    let mut file = File::open(&Path::new(filename)).unwrap();
+    let data = file.read_to_end().unwrap().as_slice().from_base64().unwrap();
+
+    symm::decrypt(symm::AES_128_ECB, "YELLOW SUBMARINE".as_bytes(), Vec::new(), data.as_slice())
+}
+
+// Given a file containing hex-encoded ciphertexts, returns one that is most likely ecrypted with AES-128-ECB.
+fn detect_aes_ecb(filename: &str) -> Vec<u8> {
+    let mut file = BufferedReader::new(File::open(&Path::new(filename)));
+    let lines: Vec<Vec<u8>> = file.lines().map(|l| l.unwrap().as_slice().from_hex().unwrap()).collect();
+    let mut max_line: &[u8] = &[];
+    let mut max_dups = 0u;
+    let num_chunks = 16;
+
+    for (line_num, line) in lines.iter().enumerate() {
+        let mut num_dups = 0u;
+        let mut dups_set: HashSet<&[u8]> = HashSet::new();
+        for chunk in line.as_slice().chunks(num_chunks) {
+            if dups_set.contains_equiv(&chunk) {
+                num_dups += 1;
+            } else {
+                dups_set.insert(chunk);
+            }
+        }
+        if num_dups > max_dups {
+            max_dups = num_dups;
+            max_line = line.as_slice();
+        }
+    }
+
+    for line in lines.iter() {
+        let dec = symm::decrypt(symm::AES_128_ECB, "YELLOW SUBMARINE".as_bytes(), Vec::new(), line.as_slice());
+        match String::from_utf8(dec) {
+            Ok(s) => println!("{}", s),
+            Err(_) => {}
+        }
+    }
+
+    Vec::from_slice(max_line)
+}
+
 fn main() {
-    println!("{}", single_byte_xor_cipher("1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736"
-                                          .from_hex().unwrap().as_slice()));
-    println!("{}", detect_single_character_xor("4.txt"));
-    decrypt_repeating_key_xor("6.txt");
+    // println!("{}", single_byte_xor_cipher("1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736"
+    //                                       .from_hex().unwrap().as_slice()));
+    // println!("{}", detect_single_character_xor("4.txt"));
+    // decrypt_repeating_key_xor("6.txt");
+    // println!("{}", String::from_utf8(decrypt_aes_ecb("7.txt")).unwrap());
+    // let result = detect_aes_ecb("8.txt");
 }
