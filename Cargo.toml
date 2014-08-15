@@ -1,0 +1,9 @@
+[package]
+
+name = "matasano"
+version = "0.1.0"
+authors = ["dmacdougall@gmail.com"]
+
+[dependencies.openssl]
+
+git = "https://github.com/sfackler/rust-openssl"
