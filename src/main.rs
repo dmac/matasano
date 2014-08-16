@@ -6,7 +6,7 @@ use serialize::hex::{FromHex, ToHex};
 use serialize::base64::{FromBase64};
 
 fn check(n: uint, pass: bool) {
-    println!("{} {}", n, if pass { "+" } else { "-" });
+    println!("{}{} {}", if n < 10 { "0" } else { "" }, n, if pass { "+" } else { "-" });
 }
 
 fn challenge1() {
@@ -81,6 +81,31 @@ fn challenge8() {
     check(8, i == 132);
 }
 
+fn challenge9() {
+    let src = "YELLOW SUBMARINE";
+    let dst = "YELLOW SUBMARINE\x04\x04\x04\x04";
+    let buf: Vec<u8> = src.bytes().collect();
+    let res = String::from_utf8(matasano::pad(buf, 20)).unwrap();
+    check(9, dst == res.as_slice());
+}
+
+fn challenge10() {
+    let src: Vec<u8> = "one two three four five".bytes().collect();
+    let key = "YELLOW SUBMARINE";
+    let ecb_is_symmetric = src ==
+        matasano::decrypt_aes_ecb(
+            matasano::encrypt_aes_ecb(src.as_slice(), key.as_bytes()).as_slice(),
+            key.as_bytes());
+
+    let dst = "A rockin' on the mike while the fly girls yell ";
+    let mut file = File::open(&Path::new("data/10.txt")).unwrap();
+    let buf = file.read_to_end().unwrap().as_slice().from_base64().unwrap();
+    let result = matasano::decrypt_aes_cbc(buf.as_slice(), key.as_bytes(), [0]);
+    let text = String::from_utf8(result).unwrap();
+    let decrypt_cbc_works = dst == text.as_slice().lines().skip(1).next().unwrap();
+    check(10, ecb_is_symmetric && decrypt_cbc_works);
+}
+
 fn main() {
     challenge1();
     challenge2();
@@ -90,4 +115,6 @@ fn main() {
     challenge6();
     challenge7();
     challenge8();
+    challenge9();
+    challenge10();
 }

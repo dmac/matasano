@@ -179,6 +179,10 @@ pub fn decrypt_repeating_key_xor(buf: Vec<u8>) -> (String, Vec<u8>) {
     (String::from_utf8(repeating_key_xor(buf.as_slice(), key.as_slice())).unwrap(), key)
 }
 
+pub fn encrypt_aes_ecb(buf: &[u8], key: &[u8]) -> Vec<u8> {
+    symm::encrypt(symm::AES_128_ECB, key, Vec::new(), buf.as_slice())
+}
+
 pub fn decrypt_aes_ecb(buf: &[u8], key: &[u8]) -> Vec<u8> {
     symm::decrypt(symm::AES_128_ECB, key, Vec::new(), buf.as_slice())
 }
@@ -207,4 +211,32 @@ pub fn detect_aes_ecb<'a>(bufs: &'a [&[u8]]) -> (&'a [u8], int) {
     }
 
     (max_buf, max_i)
+}
+
+pub fn pad(mut buf: Vec<u8>, block_size: u8) -> Vec<u8> {
+    let tmp = block_size - (buf.len() % block_size as uint) as u8;
+    let val: u8 = if tmp == 0 { block_size } else { tmp };
+    for _ in range(0, val) {
+        buf.push(val);
+    }
+    buf
+}
+
+pub fn decrypt_aes_cbc(buf: &[u8], key: &[u8], iv: &[u8]) -> Vec<u8> {
+    let block_size = 16u8;
+    assert!(buf.len() % block_size as uint == 0);
+    let mut result: Vec<u8> = Vec::new();
+    let mut prev_block: Vec<u8> = iv.to_vec();
+    let mut offset = 0u;
+
+    while offset < buf.len() {
+        let offset_end = std::cmp::min(buf.len(), offset + block_size as uint);
+        let block = pad(buf.slice(offset, offset_end).to_vec(), block_size);
+        let decrypted_block = decrypt_aes_ecb(block.as_slice(), key);
+        let xored_block = repeating_key_xor(decrypted_block.as_slice(), prev_block.as_slice());
+        result.push_all(xored_block.as_slice());
+        prev_block = block;
+        offset += block_size as uint;
+    }
+    result
 }
