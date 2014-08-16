@@ -187,6 +187,15 @@ pub fn decrypt_aes_ecb(buf: &[u8], key: &[u8]) -> Vec<u8> {
     symm::decrypt(symm::AES_128_ECB, key, Vec::new(), buf.as_slice())
 }
 
+pub fn decrypt_aes_ecb_nopad(buf: &[u8], key: &[u8]) -> Vec<u8> {
+    let crypter = symm::Crypter::new(symm::AES_128_ECB);
+    crypter.init(symm::Decrypt, key, Vec::new());
+    crypter.pad(false);
+    let result = crypter.update(buf);
+    let rest = crypter.final();
+    result.append(rest.as_slice())
+}
+
 pub fn detect_aes_ecb<'a>(bufs: &'a [&[u8]]) -> (&'a [u8], int) {
     let mut max_buf: &[u8] = &[];
     let mut max_dups = 0u;
@@ -231,8 +240,8 @@ pub fn decrypt_aes_cbc(buf: &[u8], key: &[u8], iv: &[u8]) -> Vec<u8> {
 
     while offset < buf.len() {
         let offset_end = std::cmp::min(buf.len(), offset + block_size as uint);
-        let block = pad(buf.slice(offset, offset_end).to_vec(), block_size);
-        let decrypted_block = decrypt_aes_ecb(block.as_slice(), key);
+        let block = buf.slice(offset, offset_end).to_vec();
+        let decrypted_block = decrypt_aes_ecb_nopad(block.as_slice(), key);
         let xored_block = repeating_key_xor(decrypted_block.as_slice(), prev_block.as_slice());
         result.push_all(xored_block.as_slice());
         prev_block = block;
