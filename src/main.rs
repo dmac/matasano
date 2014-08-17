@@ -67,7 +67,7 @@ fn challenge7() {
     let mut file = File::open(&Path::new("data/7.txt")).unwrap();
     let data = file.read_to_end().unwrap().as_slice().from_base64().unwrap();
     let key = "YELLOW SUBMARINE".as_bytes();
-    let res = String::from_utf8(matasano::decrypt_aes_ecb(data.as_slice(), key)).unwrap();
+    let res = String::from_utf8(matasano::aes_ecb(data.as_slice(), key, false)).unwrap();
     let line = res.as_slice().lines().next().unwrap().trim();
     let dst = "I'm back and I'm ringin' the bell";
     check(7, dst == line);
@@ -93,14 +93,18 @@ fn challenge10() {
     let src: Vec<u8> = "one two three four five".bytes().collect();
     let key = "YELLOW SUBMARINE";
     let ecb_is_symmetric = src ==
-        matasano::decrypt_aes_ecb(
-            matasano::encrypt_aes_ecb(src.as_slice(), key.as_bytes()).as_slice(),
-            key.as_bytes());
+        matasano::aes_ecb(
+            matasano::aes_ecb(
+                src.as_slice(),
+                key.as_bytes(),
+                true).as_slice(),
+            key.as_bytes(),
+            false);
 
     let dst = "A rockin' on the mike while the fly girls yell ";
     let mut file = File::open(&Path::new("data/10.txt")).unwrap();
     let buf = file.read_to_end().unwrap().as_slice().from_base64().unwrap();
-    let result = matasano::decrypt_aes_cbc(buf.as_slice(), key.as_bytes(), [0]);
+    let result = matasano::aes_cbc(buf.as_slice(), key.as_bytes(), [0], false);
     let text = String::from_utf8(result).unwrap();
     let decrypt_cbc_works = dst == text.as_slice().lines().skip(1).next().unwrap();
     check(10, ecb_is_symmetric && decrypt_cbc_works);
