@@ -1,6 +1,8 @@
 extern crate serialize;
 extern crate matasano;
 
+use std::collections::HashMap;
+use std::iter::range_inclusive;
 use std::io::{BufferedReader, File};
 use serialize::hex::{FromHex, ToHex};
 use serialize::base64::{FromBase64};
@@ -121,6 +123,69 @@ aaaaaaaaaaaaaaaa\
     check(11, is_ecb_guess == is_ecb_real);
 }
 
+fn challenge12() {
+    // Determine block size
+    let mut block_size = 0u;
+    let mut prev = matasano::encryption_oracle2(['a' as u8]);
+    for n in range_inclusive(2u, 33) {
+        let data = Vec::from_elem(n, 'a' as u8);
+        let res = matasano::encryption_oracle2(data.as_slice());
+        if res.slice_to(n - 1) == prev.slice_to(n - 1) {
+            block_size = n - 1;
+            break;
+        }
+        prev = res;
+    }
+    let block_size_found = block_size == 16;
+
+    // Detect ECB
+    let data = Vec::from_elem(2*block_size as uint, 'a' as u8);
+    let res = matasano::encryption_oracle2(data.as_slice());
+    let ecb_found = matasano::is_aes_ecb(res.as_slice());
+
+    // Crack successive bytes of unknown text
+    let build_dict = |prefix: &[u8]| -> HashMap<Vec<u8>, u8> {
+        let mut dict: HashMap<Vec<u8>, u8> = HashMap::new();
+        for b in range_inclusive(0u8, 255) {
+            let mut data = prefix.to_vec();
+            data.push(b);
+            let res = matasano::encryption_oracle2(data.as_slice());
+            let block_entry = res.slice_to(block_size).to_vec();
+            dict.insert(block_entry, b);
+        }
+        dict
+    };
+    let mut known_bytes = Vec::from_elem(block_size - 1, 'a' as u8);
+    let mut block_num = 0u;
+    'outer: loop {
+        for i in range(0u, 16) {
+            let data = known_bytes.slice(block_num*block_size + i,
+                                         block_num*block_size + i + block_size - 1).to_vec();
+            let dict = build_dict(data.as_slice());
+            let res = matasano::encryption_oracle2(data.slice_to(data.len() - i));
+            let block = res.slice(block_num*block_size, block_num*block_size + block_size);
+            let byte: u8 = match dict.find_equiv(&block.to_vec()) {
+                Some(b) => *b,
+                None => break 'outer
+            };
+            known_bytes.push(byte);
+        }
+        block_num += 1;
+    }
+
+    for _ in range(0, block_size - 1) { known_bytes.remove(0); }
+    let text = String::from_utf8(matasano::unpad(known_bytes.as_slice())).unwrap();
+    let dst = "\
+Rollin' in my 5.0
+With my rag-top down so my hair can blow
+The girlies on standby waving just to say hi
+Did you stop? No, I just drove by
+".to_string();
+    let decrypted_string = dst == text;
+
+    check(12, block_size_found && ecb_found && decrypted_string);
+}
+
 fn main() {
     challenge1();
     challenge2();
@@ -133,4 +198,5 @@ fn main() {
     challenge9();
     challenge10();
     challenge11();
+    challenge12();
 }

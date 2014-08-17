@@ -2,9 +2,10 @@ extern crate serialize;
 extern crate openssl;
 
 use std::collections::{HashMap, HashSet};
+use std::io::File;
 use std::rand;
 use std::rand::Rng;
-use serialize::base64::{Config, Standard, ToBase64};
+use serialize::base64::{Config, Standard, FromBase64, ToBase64};
 use serialize::hex::{FromHex};
 
 use openssl::crypto::symm;
@@ -249,6 +250,11 @@ pub fn pad(mut buf: Vec<u8>, block_size: u8) -> Vec<u8> {
     buf
 }
 
+pub fn unpad(data: &[u8]) -> Vec<u8> {
+    let n = data[data.len() - 1] as uint;
+    data.slice_to(data.len() - n).to_vec()
+}
+
 pub fn aes_cbc(buf: &[u8], key: &[u8], iv: &[u8], encrypt: bool) -> Vec<u8> {
     let block_size = 16u8;
     let mut result: Vec<u8> = Vec::new();
@@ -259,7 +265,6 @@ pub fn aes_cbc(buf: &[u8], key: &[u8], iv: &[u8], encrypt: bool) -> Vec<u8> {
         let offset_end = std::cmp::min(buf.len(), offset + block_size as uint);
         let block = buf.slice(offset, offset_end).to_vec();
         let crypted_block = aes_ecb(block.as_slice(), key, encrypt);
-        //print16(crypted_block.as_slice());
         let xored_block = repeating_key_xor(crypted_block.as_slice(), prev_block.as_slice());
         result.push_all(xored_block.as_slice());
         prev_block = block;
@@ -276,22 +281,19 @@ pub fn random_aes_key() -> Vec<u8> {
     key
 }
 
-pub fn encrypt_random(mut data: Vec<u8>) -> (Vec<u8>, bool) {
-    let key = random_aes_key();
+pub fn encrypt_random(mut data: Vec<u8>, prefix: &[u8], suffix: &[u8],
+                      random_key: bool, random_mode: bool)
+                      -> (Vec<u8>, bool) {
+    let key = if random_key { random_aes_key() } else { "SECRETUNKNOWNKEY".as_bytes().to_vec() };
 
-    let mut rng = rand::task_rng();
-    let num_prefix_bytes = rng.gen_range(5u, 11);
-    let num_suffix_bytes = rng.gen_range(5u, 11);
-    for _ in range(0, num_prefix_bytes) {
-        data.insert(0, rand::random());
+    for &b in prefix.iter() {
+        data.insert(0, b);
     }
-    for _ in range(0, num_suffix_bytes) {
-        data.push(rand::random());
-    }
+    data.push_all(suffix);
 
     let padded_data = pad(data, 16);
 
-    if rand::random() {
+    if if random_mode { rand::random() } else { true } {
         (aes_ecb(padded_data.as_slice(), key.as_slice(), true), true)
     } else {
         let iv: u8 = rand::random();
@@ -300,8 +302,27 @@ pub fn encrypt_random(mut data: Vec<u8>) -> (Vec<u8>, bool) {
 }
 
 pub fn encryption_oracle(data: &[u8]) -> (bool, bool) {
-    let (encrypted, is_ecb) = encrypt_random(data.to_vec());
+    let mut rng = rand::task_rng();
+    let mut prefix: Vec<u8> = Vec::new();
+    let mut suffix: Vec<u8> = Vec::new();
+    let num_prefix_bytes = rng.gen_range(5u, 11);
+    let num_suffix_bytes = rng.gen_range(5u, 11);
+    for _ in range(0, num_prefix_bytes) {
+        prefix.push(rand::random());
+    }
+    for _ in range(0, num_suffix_bytes) {
+        suffix.push(rand::random());
+    }
+    let (encrypted, is_ecb) = encrypt_random(data.to_vec(), prefix.as_slice(), suffix.as_slice(), true, true);
     (is_aes_ecb(encrypted.as_slice()), is_ecb)
+}
+
+pub fn encryption_oracle2(data: &[u8]) -> Vec<u8> {
+    let mut file = File::open(&Path::new("data/12.txt")).unwrap();
+    let suffix = file.read_to_end().unwrap().as_slice().from_base64().unwrap();
+
+    let (encrypted, _) = encrypt_random(data.to_vec(), "".as_bytes(), suffix.as_slice(), false, false);
+    encrypted
 }
 
 pub fn print16(data: &[u8]) {
@@ -309,6 +330,9 @@ pub fn print16(data: &[u8]) {
         for &b in bs.iter() {
             let padding = if b < 10 { "   " } else if b < 100 { "  " } else { " " };
             print!("{}{}", padding, b);
+        }
+        for _ in range(0, 16 - bs.len()) {
+            print!("   _");
         }
         println!("");
     }
