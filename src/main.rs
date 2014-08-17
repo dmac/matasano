@@ -6,7 +6,7 @@ use serialize::hex::{FromHex, ToHex};
 use serialize::base64::{FromBase64};
 
 fn check(n: uint, pass: bool) {
-    println!("{}{} {}", if n < 10 { "0" } else { "" }, n, if pass { "+" } else { "-" });
+    println!("{}{} {}", if n < 10 { " " } else { "" }, n, if pass { "+" } else { "-" });
 }
 
 fn challenge1() {
@@ -77,7 +77,7 @@ fn challenge8() {
     let mut file = BufferedReader::new(File::open(&Path::new("data/8.txt")));
     let lines: Vec<Vec<u8>> = file.lines().map(|l| l.unwrap().as_slice().from_hex().unwrap()).collect();
     let line_refs: Vec<&[u8]> = lines.iter().map(|l| l.as_slice()).collect();
-    let (_, i) = matasano::detect_aes_ecb(line_refs.as_slice());
+    let (_, i) = matasano::find_aes_ecb(line_refs.as_slice());
     check(8, i == 132);
 }
 
@@ -90,9 +90,9 @@ fn challenge9() {
 }
 
 fn challenge10() {
-    let src: Vec<u8> = "one two three four five".bytes().collect();
+    let src: Vec<u8> = matasano::pad("one two three four five".to_string().as_bytes().to_vec(), 16);
     let key = "YELLOW SUBMARINE";
-    let ecb_is_symmetric = src ==
+    let res =
         matasano::aes_ecb(
             matasano::aes_ecb(
                 src.as_slice(),
@@ -100,6 +100,7 @@ fn challenge10() {
                 true).as_slice(),
             key.as_bytes(),
             false);
+    let ecb_is_symmetric = src == res;
 
     let dst = "A rockin' on the mike while the fly girls yell ";
     let mut file = File::open(&Path::new("data/10.txt")).unwrap();
@@ -108,6 +109,16 @@ fn challenge10() {
     let text = String::from_utf8(result).unwrap();
     let decrypt_cbc_works = dst == text.as_slice().lines().skip(1).next().unwrap();
     check(10, ecb_is_symmetric && decrypt_cbc_works);
+}
+
+fn challenge11() {
+    let data = "\
+aaaaaaaaaaaaaaaa\
+aaaaaaaaaaaaaaaa\
+aaaaaaaaaaaaaaaa\
+".as_bytes().to_vec();
+    let (is_ecb_guess, is_ecb_real) = matasano::encryption_oracle(data.as_slice());
+    check(11, is_ecb_guess == is_ecb_real);
 }
 
 fn main() {
@@ -121,4 +132,5 @@ fn main() {
     challenge8();
     challenge9();
     challenge10();
+    challenge11();
 }

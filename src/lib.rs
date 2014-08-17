@@ -2,6 +2,8 @@ extern crate serialize;
 extern crate openssl;
 
 use std::collections::{HashMap, HashSet};
+use std::rand;
+use std::rand::Rng;
 use serialize::base64::{Config, Standard, ToBase64};
 use serialize::hex::{FromHex};
 
@@ -179,12 +181,15 @@ pub fn decrypt_repeating_key_xor(buf: Vec<u8>) -> (String, Vec<u8>) {
     (String::from_utf8(repeating_key_xor(buf.as_slice(), key.as_slice())).unwrap(), key)
 }
 
-pub fn aes_ecb(buf: &[u8], key: &[u8], encrypt: bool) -> Vec<u8> {
-    if encrypt {
-        symm::encrypt(symm::AES_128_ECB, key, Vec::new(), buf.as_slice())
-    } else {
-        symm::decrypt(symm::AES_128_ECB, key, Vec::new(), buf.as_slice())
-    }
+pub fn aes_ecb(data: &[u8], key: &[u8], encrypt: bool) -> Vec<u8> {
+    assert!(data.len() % 16 == 0);
+    let crypter = symm::Crypter::new(symm::AES_128_ECB);
+    let mode = if encrypt { symm::Encrypt } else { symm::Decrypt };
+    crypter.init(mode, key, Vec::new());
+    crypter.pad(false);
+    let result = crypter.update(data);
+    let rest = crypter.final();
+    result.append(rest.as_slice())
 }
 
 pub fn decrypt_aes_ecb_nopad(buf: &[u8], key: &[u8]) -> Vec<u8> {
@@ -196,7 +201,20 @@ pub fn decrypt_aes_ecb_nopad(buf: &[u8], key: &[u8]) -> Vec<u8> {
     result.append(rest.as_slice())
 }
 
-pub fn detect_aes_ecb<'a>(bufs: &'a [&[u8]]) -> (&'a [u8], int) {
+pub fn is_aes_ecb(data: &[u8]) -> bool {
+    let block_size = 16u;
+    let mut dups_set: HashSet<&[u8]> = HashSet::new();
+    for chunk in data.chunks(block_size) {
+        if dups_set.contains_equiv(&chunk) {
+            return true;
+        } else {
+            dups_set.insert(chunk);
+        }
+    }
+    false
+}
+
+pub fn find_aes_ecb<'a>(bufs: &'a [&[u8]]) -> (&'a [u8], int) {
     let mut max_buf: &[u8] = &[];
     let mut max_dups = 0u;
     let mut max_i = -1;
@@ -239,12 +257,60 @@ pub fn aes_cbc(buf: &[u8], key: &[u8], iv: &[u8], encrypt: bool) -> Vec<u8> {
 
     while offset < buf.len() {
         let offset_end = std::cmp::min(buf.len(), offset + block_size as uint);
-        let block = pad(buf.slice(offset, offset_end).to_vec(), block_size);
+        let block = buf.slice(offset, offset_end).to_vec();
         let crypted_block = aes_ecb(block.as_slice(), key, encrypt);
+        //print16(crypted_block.as_slice());
         let xored_block = repeating_key_xor(crypted_block.as_slice(), prev_block.as_slice());
         result.push_all(xored_block.as_slice());
         prev_block = block;
         offset += block_size as uint;
     }
     result
+}
+
+pub fn random_aes_key() -> Vec<u8> {
+    let mut key: Vec<u8> = Vec::new();
+    for _ in range(0u, 16) {
+        key.push(rand::random());
+    }
+    key
+}
+
+pub fn encrypt_random(mut data: Vec<u8>) -> (Vec<u8>, bool) {
+    let key = random_aes_key();
+
+    let mut rng = rand::task_rng();
+    let num_prefix_bytes = rng.gen_range(5u, 11);
+    let num_suffix_bytes = rng.gen_range(5u, 11);
+    for _ in range(0, num_prefix_bytes) {
+        data.insert(0, rand::random());
+    }
+    for _ in range(0, num_suffix_bytes) {
+        data.push(rand::random());
+    }
+
+    let padded_data = pad(data, 16);
+
+    if rand::random() {
+        (aes_ecb(padded_data.as_slice(), key.as_slice(), true), true)
+    } else {
+        let iv: u8 = rand::random();
+        (aes_cbc(padded_data.as_slice(), key.as_slice(), [iv], true), false)
+    }
+}
+
+pub fn encryption_oracle(data: &[u8]) -> (bool, bool) {
+    let (encrypted, is_ecb) = encrypt_random(data.to_vec());
+    (is_aes_ecb(encrypted.as_slice()), is_ecb)
+}
+
+pub fn print16(data: &[u8]) {
+    for bs in data.chunks(16) {
+        for &b in bs.iter() {
+            let padding = if b < 10 { "   " } else if b < 100 { "  " } else { " " };
+            print!("{}{}", padding, b);
+        }
+        println!("");
+    }
+    println!("");
 }
